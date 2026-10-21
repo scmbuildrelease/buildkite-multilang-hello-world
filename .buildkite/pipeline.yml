@@ -1,0 +1,69 @@
+
+# .buildkite/pipeline.yml
+
+# This queue must exist in your Buildkite cluster.
+agents:
+  queue: "hosted-linux"
+
+# Java 17 is required for the Java build in this repository.
+image: "maven:3.9-eclipse-temurin-17"
+
+steps:
+  - label: ":bazel: Build, test, and package"
+    key: "bazel-ci"
+    timeout_in_minutes: 30
+
+    command: |
+      set -euo pipefail
+
+      echo "=== Environment ==="
+      uname -a
+      java -version
+
+      echo "=== Install build dependencies ==="
+      apt-get update
+      DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        git \
+        python3 \
+        zip \
+        unzip
+
+      echo "=== Install Bazelisk ==="
+      curl -fsSL \
+        https://github.com/bazelbuild/bazelisk/releases/download/v1.26.0/bazelisk-linux-amd64 \
+        -o /usr/local/bin/bazel
+      chmod +x /usr/local/bin/bazel
+      bazel --version
+
+      echo "=== Build all targets ==="
+      bazel build //...
+
+      echo "=== Run all tests ==="
+      bazel test //... --test_output=errors
+
+      echo "=== Smoke-test C++ ==="
+      bazel run //cpp:hello
+
+      echo "=== Smoke-test Java ==="
+      bazel run //java:hello
+
+      echo "=== Smoke-test Python ==="
+      bazel run //python:hello
+
+      echo "=== Create release bundle ==="
+      bazel build //:release_bundle
+
+      echo "=== Verify release artifact ==="
+      test -s bazel-bin/release_bundle.tar.gz
+      tar -tzf bazel-bin/release_bundle.tar.gz
+
+      echo "=== Buildkite CI completed successfully ==="
+
+    artifact_paths:
+      - "bazel-testlogs/**/test.log"
+      - "bazel-bin/release_bundle.tar.gz"
+
